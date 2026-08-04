@@ -1,1 +1,0 @@
-# MusicWriter package
