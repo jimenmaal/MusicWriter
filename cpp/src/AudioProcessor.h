@@ -1,43 +1,96 @@
-#pragma once
+#ifndef AUDIOPROCESSOR_H
+#define AUDIOPROCESSOR_H
 
-#include <QObject>
-#include <QVector>
-
-#ifdef USE_FFTW
-#include <fftw3.h>
+#include <array>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+#include "WasapiLoopback.h"
+#include <portaudio.h>
+#if defined(_WIN32)
+#include <pa_win_wasapi.h>
 #endif
 
-class QAudioInput;
-class QIODevice;
-
-class AudioProcessor : public QObject
-{
-    Q_OBJECT
+class AudioProcessor {
 public:
-    explicit AudioProcessor(QObject *parent = nullptr);
+    enum class Source {
+        Speakers,
+        Microphone
+    };
+
+    enum class DeviceType {
+        LoopbackOutput,
+        Microphone,
+        VirtualKeyboard
+    };
+
+    struct DeviceInfo {
+        int deviceIndex = paNoDevice;
+        std::string name;
+        DeviceType type = DeviceType::Microphone;
+        bool isDefault = false;
+    };
+
+    static constexpr int kSampleRate = 44100;
+    static constexpr int kFrameSize = 1024;
+    static constexpr int kDesiredFrequencyResolution = 1;
+    static constexpr int kMinFrequency = 15;
+    static constexpr int kMaxFrequency = 5000;
+    static constexpr int kBinCount = (kMaxFrequency - kMinFrequency) / kDesiredFrequencyResolution + 1;
+    using SpectrumArray = std::array<float, kBinCount>;
+    using WaveformArray = std::array<float, kFrameSize>;
+
+    AudioProcessor();
     ~AudioProcessor();
-    bool start();
+
+    bool start(Source source);
     void stop();
-
-signals:
-    void spectrumUpdated(const QVector<double> &freqs, const QVector<double> &mags);
-
-private slots:
-    void handleAudio();
+    bool hasDevice(Source source) const;
+    bool hasInputDevice() const;
+    std::vector<DeviceInfo> availableSources() const;
+    bool start(int deviceIndex);
+    const std::string& selectedDeviceName() const;
+    void pollSpectrum(SpectrumArray& outSpectrum);
+    void pollWaveform(WaveformArray& outWaveform);
 
 private:
-    QAudioInput *m_audioIn = nullptr;
-    QIODevice *m_io = nullptr;
-    QVector<double> m_buffer;
-    int m_sampleRate = 44100;
-    int m_fftSize = 4096;
-    void processFrame();
-    void fft(const QVector<double> &in, QVector<std::complex<double>> &out);
+    static int audioCallback(const void* input, void* output,
+                             unsigned long frameCount,
+                             const PaStreamCallbackTimeInfo* timeInfo,
+                             PaStreamCallbackFlags statusFlags,
+                             void* userData);
+    void processInput(const float* input, unsigned long frameCount);
+    void onWasapiAudio(const float* samples, unsigned long count, int channels, double sampleRate);
+    void computeSpectrum(const std::vector<float>& chunk);
+    void workerLoop();
+    bool findWasapiLoopbackDevice(int& deviceIndex) const;
+    int findMatchingWasapiLoopbackDevice(int renderDeviceIndex) const;
 
-#ifdef USE_FFTW
-    // FFTW resources
-    fftw_plan m_plan = nullptr;
-    double *m_fftw_in = nullptr;
-    fftw_complex *m_fftw_out = nullptr;
-#endif
+    PaStream* stream_ = nullptr;
+    WasapiLoopback wasapiLoopback_;
+    bool isWasapiLoopback_ = false;
+    std::vector<float> currentChunk_;
+    int sampleFrameSize_ = 0;
+    int fftSize_ = 65536;
+    double sampleRate_ = kSampleRate;
+    int streamChannels_ = 1;
+    std::deque<std::vector<float>> pendingChunks_;
+    std::mutex chunkMutex_;
+    std::condition_variable chunkCv_;
+    std::thread workerThread_;
+    std::atomic<bool> workerRunning_{false};
+    std::atomic<bool> newData_{false};
+    std::mutex spectrumMutex_;
+    std::mutex waveformMutex_;
+    SpectrumArray spectrum_;
+    SpectrumArray workingSpectrum_;
+    WaveformArray waveform_;
+    std::string selectedDeviceName_;
+    int selectedDeviceIndex_ = paNoDevice;
 };
+
+#endif // AUDIOPROCESSOR_H

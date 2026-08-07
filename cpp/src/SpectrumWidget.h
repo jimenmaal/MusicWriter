@@ -1,19 +1,20 @@
-#pragma once
+#ifndef SPECTRUMWIDGET_H
+#define SPECTRUMWIDGET_H
 
-#include <QWidget>
-#include <QVector>
+#include "AudioProcessor.h"
+#include <SDL.h>
 
-class SpectrumWidget : public QWidget
-{
-    Q_OBJECT
+class SpectrumWidget {
 public:
-    explicit SpectrumWidget(QWidget *parent = nullptr);
-    void setData(const QVector<double> &freqs, const QVector<double> &mags);
+    static constexpr int kBinCount = AudioProcessor::kBinCount;
+    using SpectrumArray = AudioProcessor::SpectrumArray;
 
-protected:
-    void paintEvent(QPaintEvent *event) override;
+    SpectrumWidget();
+    void render(SDL_Renderer* renderer, int x, int y, int width, int height);
+    SpectrumArray& data();
 
 private:
-    QVector<double> m_freqs;
-    QVector<double> m_mags;
+    SpectrumArray spectrum_;
 };
+
+#endif // SPECTRUMWIDGET_H

@@ -1,45 +1,76 @@
 #include "SpectrumWidget.h"
-#include <QPainter>
-#include <QPaintEvent>
-#include <algorithm>
+#include <cmath>
 
-SpectrumWidget::SpectrumWidget(QWidget *parent)
-    : QWidget(parent)
-{
+SpectrumWidget::SpectrumWidget() {
+    spectrum_.fill(0.0f);
 }
 
-void SpectrumWidget::setData(const QVector<double> &freqs, const QVector<double> &mags)
-{
-    m_freqs = freqs;
-    m_mags = mags;
-    update();
+SpectrumWidget::SpectrumArray& SpectrumWidget::data() {
+    return spectrum_;
 }
 
-void SpectrumWidget::paintEvent(QPaintEvent *event)
-{
-    Q_UNUSED(event)
-    QPainter p(this);
-    p.fillRect(rect(), Qt::black);
+static void selectGradientColor(float t, uint8_t& r, uint8_t& g, uint8_t& b) {
+    if (t <= 0.33f) {
+        float ratio = t / 0.33f;
+        r = 255;
+        g = static_cast<uint8_t>(ratio * 255);
+        b = 0;
+    } else if (t <= 0.66f) {
+        float ratio = (t - 0.33f) / 0.33f;
+        r = static_cast<uint8_t>(255 - ratio * 255);
+        g = 255;
+        b = 0;
+    } else {
+        float ratio = (t - 0.66f) / 0.34f;
+        r = 0;
+        g = static_cast<uint8_t>(255 - ratio * 255);
+        b = static_cast<uint8_t>(ratio * 255);
+    }
+}
 
-    if (m_freqs.isEmpty() || m_mags.isEmpty()) return;
+void SpectrumWidget::render(SDL_Renderer* renderer, int x, int y, int width, int height) {
+    const int binCount = static_cast<int>(spectrum_.size());
+    if (binCount == 0 || width <= 0 || height <= 0) {
+        return;
+    }
 
-    int w = width();
-    int h = height();
+    int visibleBars = width;
+    if (visibleBars > binCount) {
+        visibleBars = binCount;
+    }
 
-    // find magnitude range
-    double minv = *std::min_element(m_mags.constBegin(), m_mags.constEnd());
-    double maxv = *std::max_element(m_mags.constBegin(), m_mags.constEnd());
-    if (minv == maxv) maxv = minv + 1.0;
+    float binsPerBar = static_cast<float>(binCount) / static_cast<float>(visibleBars);
+    int barWidth = width / visibleBars;
+    if (barWidth < 1) barWidth = 1;
 
-    int n = m_freqs.size();
-    p.setPen(Qt::NoPen);
-    p.setBrush(Qt::green);
+    for (int i = 0; i < visibleBars; ++i) {
+        int startBin = static_cast<int>(std::floor(i * binsPerBar));
+        int endBin = static_cast<int>(std::floor((i + 1) * binsPerBar));
+        if (endBin <= startBin) {
+            endBin = startBin + 1;
+        }
+        if (startBin >= binCount) {
+            break;
+        }
+        if (endBin > binCount) {
+            endBin = binCount;
+        }
 
-    for (int i = 0; i < n; ++i) {
-        double x = double(i) / n * w;
-        double val = (m_mags[i] - minv) / (maxv - minv);
-        double barh = val * h;
-        QRectF r(x, h - barh, std::max(1.0, double(w) / n), barh);
-        p.drawRect(r);
+        float value = 0.0f;
+        for (int bin = startBin; bin < endBin; ++bin) {
+            value = std::max(value, spectrum_[bin]);
+        }
+        if (value < 0.0f) value = 0.0f;
+        if (value > 1.0f) value = 1.0f;
+        int barHeight = static_cast<int>(value * height);
+
+        float t = visibleBars > 1 ? static_cast<float>(i) / static_cast<float>(visibleBars - 1) : 0.0f;
+        uint8_t r, g, b;
+        selectGradientColor(t, r, g, b);
+        SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+
+        int rectWidth = barWidth > 1 ? barWidth - 1 : 1;
+        SDL_Rect rect = { x + i * barWidth, y + (height - barHeight), rectWidth, barHeight };
+        SDL_RenderFillRect(renderer, &rect);
     }
 }

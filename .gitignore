@@ -1,10 +1,23 @@
-__pycache__/
-.venv/
-env/
+# Build & Binary Directories
+cpp/build/
+cpp/bin/
 build/
-dist/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
+bin/
+*.exe
+*.dll
+*.obj
+*.lib
+*.pdb
+*.ilk
+
+# IDE & Editor Files
+.vs/
 .vscode/
+.idea/
+*.user
+*.vcxproj.user
+
+# OS Files
+Thumbs.db
+Desktop.ini
+.DS_Store
